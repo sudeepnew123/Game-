@@ -1,0 +1,121 @@
+import logging
+import os
+from telegram import Update, InlineKeyboardButton
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+from config import START_BALANCE, BONUS_AMOUNT
+from game import generate_board, get_button_grid
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+user_data = {}
+
+logging.basicConfig(level=logging.INFO)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if uid not in user_data:
+        user_data[uid] = {"balance": START_BALANCE, "game": None}
+    await update.message.reply_text(f"Welcome to Mines Game Bot!\nBalance: ₹{user_data[uid]['balance']}")
+
+async def balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    await update.message.reply_text(f"Your balance: ₹{user_data.get(uid, {}).get('balance', 0)}")
+
+async def bonus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    user_data.setdefault(uid, {"balance": START_BALANCE, "game": None})
+    user_data[uid]["balance"] += BONUS_AMOUNT
+    await update.message.reply_text(f"You received ₹{BONUS_AMOUNT} bonus!")
+
+async def mine(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    args = context.args
+    if len(args) != 2:
+        return await update.message.reply_text("Usage: /mine <amount> <mines>")
+
+    try:
+        amount = int(args[0])
+        mines = int(args[1])
+    except:
+        return await update.message.reply_text("Invalid input.")
+
+    if not 1 <= mines < 25:
+        return await update.message.reply_text("Mines must be between 1 and 24.")
+
+    if user_data[uid]["balance"] < amount:
+        return await update.message.reply_text("Insufficient balance.")
+
+    board, mine_positions = generate_board(mines)
+    user_data[uid]["game"] = {
+        "amount": amount,
+        "mines": mines,
+        "board": board,
+        "mine_positions": mine_positions,
+        "revealed": [],
+        "status": "active"
+    }
+    user_data[uid]["balance"] -= amount
+
+    await update.message.reply_text(
+        f"Game started with ₹{amount} and {mines} mines.\nClick to reveal gems!",
+        reply_markup=get_button_grid([], board)
+    )
+
+async def cashout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    game = user_data[uid].get("game")
+
+    if not game or game["status"] != "active":
+        return await update.message.reply_text("No active game.")
+
+    revealed = len(game["revealed"])
+    if revealed == 0:
+        return await update.message.reply_text("Reveal at least 1 cell to cash out!")
+
+    reward = int(game["amount"] + game["amount"] * (revealed * 0.3))
+    user_data[uid]["balance"] += reward
+    game["status"] = "cashed"
+
+    await update.message.reply_text(f"Cashout successful! You won ₹{reward}")
+
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = query.from_user.id
+    data = query.data
+
+    if not data.startswith("reveal:"):
+        return
+
+    index = int(data.split(":")[1])
+    game = user_data.get(uid, {}).get("game")
+    if not game or game["status"] != "active":
+        return await query.edit_message_text("No active game.")
+
+    if index in game["revealed"]:
+        return
+
+    if game["board"][index] == '💣':
+        game["revealed"].append(index)
+        game["status"] = "lost"
+        return await query.edit_message_text(
+            "BOOM! You hit a bomb 💣\nGame over.",
+            reply_markup=get_button_grid(game["revealed"], game["board"])
+        )
+
+    game["revealed"].append(index)
+    await query.edit_message_reply_markup(
+        reply_markup=get_button_grid(game["revealed"], game["board"])
+    )
+
+if __name__ == '__main__':
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("balance", balance))
+    app.add_handler(CommandHandler("bonus", bonus))
+    app.add_handler(CommandHandler("mine", mine))
+    app.add_handler(CommandHandler("cashout", cashout))
+    app.add_handler(CallbackQueryHandler(button_click))
+
+    print("Bot running with inline Mines Game...")
+    app.run_polling()
