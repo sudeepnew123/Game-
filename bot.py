@@ -239,16 +239,3 @@ if __name__ == '__main__':
 
     print("Bot is running...")
     app.run_polling()
-
-
-Done! Tumhare code mein ab:
-
-Cashout button sirf tab add hota hai jab kam se kam 2 gems reveal ho jayein.
-
-Old cashout button ko remove kiya jaata hai pehle se.
-
-help, ledboard, cashout, and all game features fully set hain.
-
-
-Kya ab ek baar test karke check karein sab sahi chal raha hai?
-
