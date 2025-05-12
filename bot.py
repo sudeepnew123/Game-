@@ -1,5 +1,6 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
 from config import BOT_TOKEN, START_BALANCE, BONUS_AMOUNT, ADMIN_ID
 from game import generate_board, get_button_grid
@@ -34,6 +35,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/bonus - Claim daily bonus\n"
         "/gift <amount> (reply to user) - Gift Hiwa\n"
         "/ledboard - Show top players\n"
+        "/cashout - Collect your winnings\n"
         "\n*Admin Commands:*\n"
         "/broadcast <msg> - Message all users\n"
         "/resetdata - Reset all data\n"
@@ -115,6 +117,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "ledboard":
         return await ledb(update, context)
 
+    if data == "cashout":
+        return await cashout(update, context)
+
     if not data.startswith("reveal:"):
         return
 
@@ -137,8 +142,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     game["revealed"].append(index)
     markup = get_button_grid(game["revealed"], game["board"])
 
-    if len(game["revealed"]) >= 2:
-        markup.inline_keyboard.append([InlineKeyboardButton("Cash Out", callback_data="cashout")])
+    if len([i for i in game["revealed"] if game["board"][i] != '💣']) >= 2:
+        if not any(btn.callback_data == "cashout" for row in markup.inline_keyboard for btn in row):
+            markup.inline_keyboard.append([InlineKeyboardButton("Cash Out", callback_data="cashout")])
 
     await query.edit_message_reply_markup(reply_markup=markup)
 
@@ -152,8 +158,9 @@ async def gift(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await update.message.reply_text("Invalid amount.")
 
     sender = update.effective_user.id
-    receiver = update.message.reply_to_message.from_user.id
-    receiver_name = update.message.reply_to_message.from_user.first_name
+    receiver_msg = update.message.reply_to_message.from_user
+    receiver = receiver_msg.id
+    receiver_name = receiver_msg.username or receiver_msg.first_name
 
     if user_data.get(sender, {}).get("balance", 0) < amount:
         return await update.message.reply_text("Insufficient balance.")
@@ -230,3 +237,68 @@ if __name__ == '__main__':
 
     print("Bot is running...")
     app.run_polling()
+
+
+To fix the error you're seeing — telegram.error.BadRequest: Button_data_invalid — the problem lies in the callback data you're assigning to the buttons in get_button_grid.
+
+Telegram restricts callback_data to a maximum of 64 bytes, and it must be a string without newline characters or emojis. Here’s how you can resolve the issue:
+
+
+---
+
+✅ Step-by-step Fix:
+
+1. Locate the get_button_grid function in game.py
+(This function is responsible for returning the InlineKeyboardMarkup used in the game board.)
+
+
+2. Inspect how callback_data is assigned
+You're likely assigning something like:
+
+callback_data=f"reveal:{index}"
+
+This is correct as long as index is a valid integer and stays small (under 64 bytes total).
+
+
+3. Ensure All Buttons Have Valid callback_data
+In the game board grid, make sure you're not using emojis or special symbols in callback_data. Emojis are allowed in button text, but not in callback_data.
+
+❌ Incorrect:
+
+InlineKeyboardButton("💣", callback_data="💣")
+
+✅ Correct:
+
+InlineKeyboardButton("💣", callback_data="reveal:13")
+
+
+4. Fix the cashout button (in button_click)
+This is currently:
+
+InlineKeyboardButton("Cash Out", callback_data="cashout")
+
+This is okay — but ensure you're not appending the same button multiple times. To prevent duplication, rewrite your check like this:
+
+if all("cashout" not in btn.callback_data for row in markup.inline_keyboard for btn in row):
+    markup.inline_keyboard.append([InlineKeyboardButton("Cash Out", callback_data="cashout")])
+
+
+
+
+---
+
+🔍 Extra Debugging
+
+If you're still getting the error, you can add a debug log to print all callback_data values being sent:
+
+for row in markup.inline_keyboard:
+    for btn in row:
+        print("Button:", btn.text, "| Callback Data:", btn.callback_data)
+
+This will help catch any malformed callback data before it's sent.
+
+
+---
+
+Would you like me to review your get_button_grid function to ensure it's structured correctly?
+
