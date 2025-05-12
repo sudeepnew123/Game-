@@ -1,10 +1,8 @@
 import logging
 from telegram import Update, InlineKeyboardButton
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
-from config import START_BALANCE, BONUS_AMOUNT, ADMIN_ID
+from config import BOT_TOKEN, START_BALANCE, BONUS_AMOUNT, ADMIN_ID
 from game import generate_board, get_button_grid
-
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 user_data = {}
 
